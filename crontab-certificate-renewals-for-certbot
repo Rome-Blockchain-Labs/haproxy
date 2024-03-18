@@ -1,0 +1,5 @@
+certbot certonly --standalone --force-renewal --http-01-port=8888 -d avalanche.rpc.romenet.io && cat /etc/letsencrypt/live/avalanche.rpc.romenet.io/fullchain.pem /etc/letsencrypt/live/avalanche.rpc.romenet.io/privkey.pem > /etc/pki/certs/avalanche.rpc.romenet.io.pem && systemctl reload haproxy
+certbot certonly --standalone --force-renewal --http-01-port=8888 -d avalanche.data.romenet.io && cat /etc/letsencrypt/live/avalanche.data.romenet.io/fullchain.pem /etc/letsencrypt/live/avalanche.data.romenet.io/privkey.pem > /etc/pki/certs/avalanche.data.romenet.io.pem && systemctl reload haproxy
+certbot certonly --standalone --force-renewal --http-01-port=8888 -d flare.rpc.romenet.io && cat /etc/letsencrypt/live/flare.rpc.romenet.io/fullchain.pem /etc/letsencrypt/live/flare.rpc.romenet.io/privkey.pem > /etc/pki/certs/flare.rpc.romenet.io.pem && systemctl reload haproxy
+certbot certonly --standalone --force-renewal --http-01-port=8888 -d flare.data.romenet.io && cat /etc/letsencrypt/live/flare.data.romenet.io/fullchain.pem /etc/letsencrypt/live/flare.data.romenet.io/privkey.pem > /etc/pki/certs/flare.data.romenet.io.pem && systemctl reload haproxy
+

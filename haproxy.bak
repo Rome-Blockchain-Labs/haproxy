@@ -1,0 +1,370 @@
+# Global settings
+global
+    log 127.0.0.1 local0
+    chroot /var/lib/haproxy
+    pidfile /var/run/haproxy.pid
+    maxconn 250000
+    user haproxy
+    group haproxy
+    daemon
+    nbthread 8
+    server-state-base /opt/haproxy/state/
+    tune.bufsize 131072
+    tune.ssl.default-dh-param 4096
+    stats socket /var/run/haproxy.sock mode 600 level admin
+    stats timeout 2m
+    maxcompcpuusage 50
+
+# Defaults
+defaults
+    log global
+    retries 3
+    maxconn 250000
+    timeout connect 5s
+    timeout client 300s
+    timeout server 300s
+    timeout queue 25s
+
+# Stats
+frontend stats
+    bind *:8404
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats auth hoomee8pohQuaitei9oohoo8leoHeiz3:ohngeerohXeegae8ahW2beu3ooQuo7ba
+    # acl allowed_ip src 192.168.0.0/16
+    # tcp-request connection accept if allowed_ip
+    # tcp-request connection reject
+
+###
+# HTTP Frontend configuration
+###
+frontend http-frontend
+    bind *:80
+    mode http
+    timeout client 300s
+
+    # Define ACL for Let's Encrypt ACME challenge path
+    acl letsencrypt path_beg -i /.well-known/acme-challenge/
+
+    # Redirect HTTP to HTTPS by default, excluding ACME challenge requests
+    # http-request redirect scheme https if !letsencrypt
+    http-request redirect scheme https code 301 if !letsencrypt
+
+    # Use letsencrypt backend for ACME challenge paths
+    use_backend backend_letsencrypt if letsencrypt
+
+    default_backend html_backend
+
+###
+# SSL Frontend configuration
+###
+frontend ssl-frontend
+    bind *:443 ssl crt /etc/pki/certs # verify optional
+    mode http
+    timeout client 300s
+
+   # Detecting WebSocket Upgrade header
+    acl is_websocket hdr(Upgrade) -i websocket
+
+    # Define ACLs for each subdomain
+    acl host_landing hdr(host) -i sceptre.fi
+    acl host_dev_landing hdr(host) -i dev.sceptre.fi
+    acl host_staging_landing hdr(host) -i staging.sceptre.fi
+    acl host_kava_app hdr(host) -i kava.sceptre.fi
+    acl host_flare_app hdr(host) -i flare.sceptre.fi
+    acl host_dev_kava hdr(host) -i dev.kava.sceptre.fi
+    acl host_dev_flare hdr(host) -i dev.flare.sceptre.fi
+    acl host_staging_kava hdr(host) -i staging.kava.sceptre.fi
+    acl host_staging_flare hdr(host) -i staging.flare.sceptre.fi
+
+    # Route traffic based on ACLs
+    use_backend sceptre_fi if host_landing
+    use_backend dev_sceptre_fi if host_dev_landing
+    use_backend staging_sceptre_fi if host_staging_landing
+    use_backend kava_sceptre_fi if host_kava_app
+    use_backend flare_sceptre_fi if host_flare_app
+    use_backend dev_kava_sceptre_fi if host_dev_kava
+    use_backend dev_flare_sceptre_fi if host_dev_flare
+    use_backend staging_kava_sceptre_fi if host_staging_kava
+    use_backend staging_flare_sceptre_fi if host_staging_flare
+
+    # Define ACLs for SNI hostname matching
+    acl host_full hdr(host) -i rpc.romenet.io
+    acl host_archive hdr(host) -i data.romenet.io
+
+    # Tier APIs
+    acl host_tierapi_hover hdr(host) -i hov.tier.api.romenet.io
+    acl host_tierapi_tashi hdr(host) -i tashi.tier.api.romenet.io
+
+    # Avalanche RPC and WSS
+    acl host_ava_full hdr(host) -i avalanche.rpc.romenet.io
+    acl host_flare_full hdr(host) -i flare.rpc.romenet.io
+    acl host_ava_archive hdr(host) -i avalanche.data.romenet.io
+    acl host_flare_archive hdr(host) -i flare.data.romenet.io
+
+    # Misc ACL
+    acl host_mikrotik_monitoring hdr(host) -i mikromon.romenet.io
+
+    # blockchains
+    acl path_ethereum path_beg -i /ethereum
+    acl path_evmos path_beg -i /evmos
+    acl path_kava path_beg -i /kava
+    acl path_flare path_beg -i /flare
+
+   # Use backends based on ACLs for WebSocket
+   # -- currently catches websocket from wss. and rpc. subdomains
+    use_backend avalanche_wss_backend if is_websocket host_ava_full
+    use_backend flare_wss_backend if is_websocket host_flare_full
+    use_backend evmos_wss_backend if is_websocket path_evmos host_full
+    use_backend kava_wss_backend if is_websocket path_kava host_full
+    use_backend ethereum_wss_backend if is_websocket path_ethereum host_full
+   # archive
+    use_backend avalanche_archive_wss_backend if is_websocket host_ava_archive
+   # use_backend evmos_archive_wss_backend if is_websocket path_evmos host_archive
+    use_backend ethereum_archive_wss_backend if is_websocket path_ethereum host_archive
+    use_backend flare_archive_wss_backend if is_websocket host_flare_archive
+    use_backend kava_archive_wss_backend if is_websocket path_kava host_archive
+
+   # mikrotik monitoring
+    use_backend mikrotik_monitoring if host_mikrotik_monitoring
+
+   # Use backends based on ACLs for RPC
+    use_backend avalanche_rpc_backend if host_ava_full
+    use_backend evmos_rpc_backend if host_full path_evmos
+    use_backend flare_rpc_backend if host_flare_full
+    use_backend kava_rpc_backend if host_full path_kava
+    use_backend ethereum_rpc_backend if host_full path_ethereum
+
+    use_backend avalanche_archive_http_backend if host_ava_archive
+   # use_backend evmos_archive_http_backend if host_archive path_evmos
+    use_backend flare_archive_http_backend if host_flare_archive
+    use_backend kava_archive_http_backend if host_archive path_kava
+    use_backend ethereum_rpc_backend if host_archive path_ethereum
+
+   # Check for the hostname to match helnode02.node.romenet.io
+    acl is_helnode02 hdr_end(host) -i helnode02.node.romenet.io
+    use_backend proxmox_backend if is_helnode02
+
+   # tierapi backend
+    use_backend backend_tierapi_tashi if host_tierapi_tashi
+    use_backend backend_tierapi_hover if host_tierapi_hover
+
+    default_backend html_backend
+
+###
+# Avalanche Backend Configurations
+###
+
+backend avalanche_rpc_backend
+    mode http
+    balance source
+    # option httpchk GET /ext/health?tag=29uVeLPJB1eQJkzRemU8g8wZDw5uJRqpab5U2mX9euieVwiEbL
+    server avalanche03-full-rpc 192.168.72.53:9650 check inter 2s
+
+backend avalanche_wss_backend
+    mode http
+    balance source
+    # option httpchk GET /ext/health?tag=29uVeLPJB1eQJkzRemU8g8wZDw5uJRqpab5U2mX9euieVwiEbL
+    server avalanche03-archive-wss 192.168.72.53:9650 check inter 2s
+
+backend avalanche_archive_http_backend
+    mode http
+    balance source
+    #http-request set-path /
+    # option httpchk GET /ext/health?tag=29uVeLPJB1eQJkzRemU8g8wZDw5uJRqpab5U2mX9euieVwiEbL
+    server avalanche05-archive-rpc 192.168.72.55:59650 check inter 2s
+
+backend avalanche_archive_wss_backend
+    mode http
+    balance source
+    #http-request set-path /
+    # option httpchk GET /ext/health?tag=29uVeLPJB1eQJkzRemU8g8wZDw5uJRqpab5U2mX9euieVwiEbL
+    server avalanche05-full-wss 192.168.72.55:59650 check inter 2s
+
+
+###
+# Ethereum Backend Configurations
+###
+
+backend ethereum_rpc_backend
+    mode http
+    http-request set-path /
+    balance source
+    server ethereum01-rpc-reth-http 192.168.72.101:8545 check
+
+backend ethereum_wss_backend
+    mode http
+    http-request set-path /
+    balance source
+    option http-server-close  # Enable HTTP connection close mode.
+    timeout http-keep-alive 1s  # Keep-alive timeout of 1 second for HTTP mode
+    timeout connect 10s  # 10 seconds timeout for establishing a connection to the backend server
+    timeout server 1h  # 1 hour server timeout to support long-lived WebSocket connections
+    timeout tunnel 1h  # 1 hour timeout for WebSocket tunnel
+    server ethereum01-rpc-reth-wss 192.168.72.101:8546 check
+    http-request set-header Upgrade websocket if { hdr(Upgrade) -i websocket }
+    http-request set-header Connection upgrade if { hdr(Upgrade) -i websocket }
+
+backend ethereum_archive_rpc_backend
+    mode http
+    http-request set-path /
+    # balance source
+    server ethereum01-archive-reth-http 192.168.72.101:8545 check
+
+backend ethereum_archive_wss_backend
+    mode http
+    http-request set-path /
+    balance source
+    option http-server-close  # Enable HTTP connection close mode.
+    timeout http-keep-alive 1s  # Keep-alive timeout of 1 second for HTTP mode
+    timeout connect 10s  # 10 seconds timeout for establishing a connection to the backend server
+    timeout server 1h  # 1 hour server timeout to support long-lived WebSocket connections
+    timeout tunnel 1h  # 1 hour timeout for WebSocket tunnel
+    server ethereum01-archive-reth-wss 192.168.72.101:8546 check
+    http-request set-header Upgrade websocket if { hdr(Upgrade) -i websocket }
+    http-request set-header Connection upgrade if { hdr(Upgrade) -i websocket }
+
+###
+# Evmos Backend Configurations
+###
+
+backend evmos_rpc_backend
+    mode http
+    http-request set-path /
+    balance source
+    server evmos04-full-rpc 192.168.72.114:48585 check # inter 2s maxconn 200
+    #server evmos06-full-rpc 192.168.72.116:58585 check # inter 2s maxconn 200
+
+backend evmos_wss_backend
+    mode http
+    http-request set-path /
+    balance source
+    server evmos04-full-wss 192.168.72.114:48586 check # inter 2s maxconn 200
+    #server evmos06-full-wss 192.168.72.116:58586 check # inter 2s maxconn 200
+
+###
+# FlareNetwork Backend Configurations
+###
+
+backend flare_rpc_backend
+    mode http
+    balance source
+    server flare01-full-rpc 192.168.72.221:19650 check inter 2s # maxconn 200
+
+backend flare_wss_backend
+    mode http
+    balance source
+    server flare01-full-wss 192.168.72.221:19650 check inter 2s # maxconn 200
+
+###
+# FlareNetwork Archive Backend Configurations
+###
+
+backend flare_archive_http_backend
+    mode http
+    balance source
+    server flare01-archive-rpc 192.168.72.221:19650 check inter 2s # maxconn 200
+
+backend flare_archive_wss_backend
+    mode http
+    balance source
+    server flare01-archive-wss 192.168.72.221:19650 check inter 2s # maxconn 200
+
+###
+# Kava Backend Configurations
+###
+
+backend kava_rpc_backend
+    mode http
+    http-request set-path /
+    balance source
+    server kava02-full-rpc 192.168.72.102:38545 check inter 2s # maxconn 200
+
+backend kava_wss_backend
+    mode http
+    http-request set-path /
+    balance source
+    server kava02-full-wss 192.168.72.102:38546 check inter 2s # maxconn 200
+
+backend kava_archive_http_backend
+    mode http
+    http-request set-path /
+    balance source
+    server kava02-archive-http 95.216.235.73:38545 check inter 2s # maxconn 200
+
+backend kava_archive_wss_backend
+    mode http
+    http-request set-path /
+    balance source
+    server kava02-archive-wss 95.216.235.73:38546 check inter 2s # maxconn 200
+
+###
+# MISC Backend Configurations
+###
+
+backend proxmox_backend
+    mode http
+    server proxmox_localhost 127.0.0.1:8006 ssl verify none
+    redirect scheme https if !{ ssl_fc }
+
+backend html_backend
+    mode http
+    server html_localhost 127.0.0.1:8069 check
+
+backend dev_kava_sceptre_fi
+    mode http
+    server dev_kava_sceptre_fi 127.0.0.1:8001 check
+
+backend kava_sceptre_fi
+    mode http
+    server kava_sceptre_fi 127.0.0.1:8002 check
+
+backend sceptre_fi
+    mode http
+    server sceptre_fi 127.0.0.1:8003 check
+
+backend staging_kava_sceptre_fi
+    mode http
+    server staging_kava_sceptre_fi 127.0.0.1:8004 check
+
+backend backend_sceptre_dev_kava
+    mode http
+    server sceptre_dev 127.0.0.1:8011 check
+
+backend backend_sceptre_app_kava
+    mode http
+    server sceptre_app 127.0.0.1:8012 check
+
+backend backend_sceptre_staging_kava
+    mode http
+    server sceptre_staging 127.0.0.1:8014 check
+
+backend backend_sceptre_dev_flare
+    mode http
+    server sceptre_dev 127.0.0.1:8021 check
+
+backend flare_sceptre_fi
+    mode http
+    server flare_sceptre_fi 127.0.0.1:8022 check
+
+backend staging_flare_sceptre_fi
+    mode http
+    server staging_flare_sceptre_fi 127.0.0.1:8024 check
+
+backend backend_tierapi_hover
+    mode http
+    server helnode02_hover_tier_api_docker 0.0.0.0:42080 check
+
+backend backend_tierapi_tashi
+    mode http
+    server helnode02_tashi_tier_api_docker 0.0.0.0:42090 check
+
+backend mikrotik_monitoring
+    mode http
+    server mikrotik_monitoring 0.0.0.0:8070
+
+backend backend_letsencrypt
+    mode http
+    server certbot 127.0.0.1:8888
